@@ -20,67 +20,18 @@ const TABS = [
   { key: 'sprint',      label: 'Sprint Plan' },
 ];
 
-const SYSTEM_PROMPT = `You are an expert startup operations analyst. You receive messy operational input
-(meeting notes, brain dumps, sprint plans, customer interviews, GTM sessions, product reviews)
-and synthesize it into a structured "Ops Pack".
-
-Return ONLY valid JSON with exactly this structure (no markdown, no backticks, no preamble):
-{
-  "summary": "2-3 paragraph executive summary of the key context and situation",
-  "decisions": ["Decision 1 with owner and status", "Decision 2...", ...],
-  "actionItems": [
-    { "task": "specific task", "owner": "person or team", "priority": "P0|P1|P2|P3", "function": "Eng|Product|Marketing|Sales|Ops|Design", "due": "timeframe" }
-  ],
-  "prd": {
-    "title": "Feature or initiative name",
-    "problem": "Problem being solved",
-    "proposal": "What we're building",
-    "users": "Target users",
-    "success": ["Metric 1", "Metric 2"],
-    "nonGoals": "What this is NOT"
-  },
-  "risks": [
-    { "severity": "High|Medium|Low", "text": "Risk or open question description" }
-  ],
-  "stakeholderUpdate": "Ready-to-send stakeholder update (2-3 paragraphs)",
-  "followUpEmail": "Ready-to-send follow-up email body",
-  "sprintPlan": {
-    "committed": ["Item 1", "Item 2"],
-    "cut": ["Deferred item 1"],
-    "risks": ["Sprint risk 1"]
-  }
-}
-
-If a section is not applicable (e.g. no PRD needed for a sprint note), set it to null.
-Make all output specific and actionable — no vague placeholder text.`;
-
-// ─── API call ─────────────────────────────────────────────────────────────────
+// ─── API call (proxied through /api/generate to keep API key server-side) ─────
 
 async function callClaudeAPI(rawNotes, inputType) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('/api/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      messages: [{
-        role: 'user',
-        content: `Input type: ${inputType}\n\nRaw notes:\n${rawNotes}`,
-      }],
-    }),
+    body: JSON.stringify({ rawNotes, inputType }),
   });
 
   const data = await response.json();
-
-  if (data.error) {
-    throw new Error(data.error.message || 'API error');
-  }
-
-  const raw = data.content[0].text;
-  // Strip markdown fences if model wraps response in them
-  const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  return JSON.parse(cleaned);
+  if (data.error) throw new Error(data.error);
+  return data;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -131,6 +82,12 @@ function CopyButton({ text }) {
 }
 
 // ─── Tab content ──────────────────────────────────────────────────────────────
+
+function SectionLabel({ children }) {
+  return (
+    <div className="font-mono text-[10px] tracking-widest text-stone-500 uppercase mb-3">{children}</div>
+  );
+}
 
 function TabContent({ tab, pack }) {
   if (tab === 'summary') {
@@ -218,7 +175,11 @@ function TabContent({ tab, pack }) {
         <SectionLabel>{items.length} Risks & Open Questions</SectionLabel>
         {items.length === 0 && <div className="prose-block">No risks identified.</div>}
         {items.map((r, i) => {
-          const bg = { High: 'bg-red-900/10 border-red-700/30', Medium: 'bg-yellow-900/10 border-yellow-700/30', Low: 'bg-emerald-900/10 border-emerald-700/30' };
+          const bg = {
+            High:   'bg-red-900/10 border-red-700/30',
+            Medium: 'bg-yellow-900/10 border-yellow-700/30',
+            Low:    'bg-emerald-900/10 border-emerald-700/30',
+          };
           return (
             <div key={i} className={`flex gap-3 items-start px-4 py-3 rounded-lg mb-2 border text-sm ${bg[r.severity] || bg.Medium}`}>
               <SeverityTag severity={r.severity} />
@@ -275,21 +236,15 @@ function TabContent({ tab, pack }) {
   return null;
 }
 
-function SectionLabel({ children }) {
-  return (
-    <div className="font-mono text-[10px] tracking-widest text-stone-500 uppercase mb-3">{children}</div>
-  );
-}
-
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [inputType, setInputType]   = useState('sprint');
-  const [rawInput, setRawInput]     = useState('');
-  const [loading, setLoading]       = useState(false);
-  const [opsPack, setOpsPack]       = useState(null);
-  const [activeTab, setActiveTab]   = useState(0);
-  const [error, setError]           = useState(null);
+  const [inputType, setInputType] = useState('sprint');
+  const [rawInput, setRawInput]   = useState('');
+  const [loading, setLoading]     = useState(false);
+  const [opsPack, setOpsPack]     = useState(null);
+  const [activeTab, setActiveTab] = useState(0);
+  const [error, setError]         = useState(null);
 
   const handleGenerate = async () => {
     if (!rawInput.trim()) return;
@@ -323,6 +278,7 @@ export default function App() {
 
       {/* Main */}
       <div className="flex flex-1 overflow-hidden">
+
         {/* Left panel */}
         <div className="w-[340px] border-r border-stone-800 bg-stone-900 flex flex-col shrink-0 overflow-hidden">
           {/* Input type */}
@@ -424,6 +380,7 @@ export default function App() {
             </>
           )}
         </div>
+
       </div>
     </div>
   );
